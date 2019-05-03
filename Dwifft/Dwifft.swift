@@ -51,6 +51,7 @@ public enum SectionedDiffStep<Section, Value>: CustomDebugStringConvertible {
     case insert(Int, Int, Value)
     /// An deletion, at a given section and row.
     case delete(Int, Int, Value)
+    case update(Int, Int, Value)
     /// A section insertion, at a given section.
     case sectionInsert(Int, Section)
     /// A section deletion, at a given section.
@@ -62,15 +63,26 @@ public enum SectionedDiffStep<Section, Value>: CustomDebugStringConvertible {
         case let .delete(s, _, _): return s
         case let .sectionInsert(s, _): return s
         case let .sectionDelete(s, _): return s
+        case let .update(s, _, _): return s
         }
     }
-
+    
+    public var indexPath: IndexPath? {
+        switch self {
+        case let .insert(s, r, _): return IndexPath(row: r, section: s)
+        case let .delete(s, r, _): return IndexPath(row: r, section: s)
+        case let .update(s, r, _): return IndexPath(row: r, section: s)
+        default: return nil
+        }
+    }
+    
     public var debugDescription: String {
         switch self {
         case let .sectionDelete(s, _): return "ds(\(s))"
         case let .sectionInsert(s, _): return "is(\(s))"
         case let .delete(section, row, _): return "d(\(section) \(row))"
         case let .insert(section, row, _): return "i(\(section) \(row))"
+        case let .update(section, row, _): return "u(\(section) \(row))"
         }
     }
 }
@@ -151,8 +163,13 @@ public enum Dwifft {
                 if case .delete = result { return true }
                 return false
             }
-            return deletions + insertions
-
+            
+            let updated = calculateUpdates(insertions: insertions, deletions: deletions)
+            let filteredInsertions = remove(updated: updated, from: insertions)
+            let filteredDeletions = remove(updated: updated, from: deletions)
+            
+            return filteredInsertions + filteredDeletions + updated
+            
         } else {
             var middleSectionsAndValues = lhs.sectionsAndValues
             let sectionDiff = Dwifft.diff(lhs.sections, rhs.sections)
@@ -206,12 +223,36 @@ public enum Dwifft {
                 guard let newIndex = mapping[section], newIndex != -1 else { fatalError("not possible") }
                 return .delete(newIndex, row, val)
             }
-
-            return mappedDeletions + sectionDeletions + sectionInsertions + insertions
-
+            
+            let updated = calculateUpdates(insertions: insertions, deletions: mappedDeletions)
+            let filteredInsertions = remove(updated: updated, from: insertions)
+            let filteredDeletions = remove(updated: updated, from: mappedDeletions)
+            
+            return filteredDeletions + sectionDeletions + sectionInsertions + filteredInsertions + updated
         }
     }
-
+    
+    private static func calculateUpdates<Section, Value>(insertions: [SectionedDiffStep<Section, Value>],
+                                                         deletions: [SectionedDiffStep<Section, Value>]) -> [SectionedDiffStep<Section, Value>] {
+        return deletions
+            .filter { deletion in
+                guard let deletionIndexPath = deletion.indexPath else { fatalError("not possible") }
+                return insertions.contains { $0.indexPath.flatMap { $0 == deletionIndexPath } ?? false }
+            }
+            .map { deletion -> SectionedDiffStep<Section, Value> in
+                guard case let .delete(section, row, val) = deletion else { fatalError("not possible") }
+                return SectionedDiffStep<Section, Value>.update(section, row, val)
+        }
+    }
+    
+    private static func remove<Section, Value>(updated: [SectionedDiffStep<Section, Value>],
+                                               from: [SectionedDiffStep<Section, Value>]) -> [SectionedDiffStep<Section, Value>] {
+        return from.filter { deletion in
+            guard let indexPath = deletion.indexPath else { fatalError("not possible") }
+            return !updated.contains { $0.indexPath.flatMap { $0 == indexPath } ?? false }
+        }
+    }
+    
     /// Applies a diff to a `SectionedValues`. The following should always be true:
     /// Given `x: SectionedValues<S,T>, y: SectionedValues<S,T>`,
     /// `Dwifft.apply(Dwifft.diff(lhs: x, rhs: y), toSectionedValues: x) == y`
@@ -234,6 +275,8 @@ public enum Dwifft {
                 sectionsAndValues[sectionIndex].1.insert(val, at: rowIndex)
             case let .delete(sectionIndex, rowIndex, _):
                 sectionsAndValues[sectionIndex].1.remove(at: rowIndex)
+            case let .update(sectionIndex, rowIndex, val):
+                sectionsAndValues[sectionIndex].1[rowIndex] = val
             }
         }
         return SectionedValues(sectionsAndValues)

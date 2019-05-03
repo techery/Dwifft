@@ -29,17 +29,20 @@ public final class TableViewDiffCalculator<Section: Equatable, Value: Equatable>
     /// You can change insertion/deletion animations like this! Fade works well.
     /// So does Top/Bottom. Left/Right/Middle are a little weird, but hey, do your thing.
     public var insertionAnimation = UITableView.RowAnimation.automatic, deletionAnimation = UITableView.RowAnimation.automatic
-
+    public var reloadAnimation = UITableView.RowAnimation.automatic
+    
     override internal func processChanges(newState: SectionedValues<Section, Value>, diff: [SectionedDiffStep<Section, Value>]) {
         guard let tableView = self.tableView else { return }
         tableView.beginUpdates()
         self._sectionedValues = newState
+        
         for result in diff {
             switch result {
             case let .delete(section, row, _): tableView.deleteRows(at: [IndexPath(row: row, section: section)], with: self.deletionAnimation)
             case let .insert(section, row, _): tableView.insertRows(at: [IndexPath(row: row, section: section)], with: self.insertionAnimation)
             case let .sectionDelete(section, _): tableView.deleteSections(IndexSet(integer: section), with: self.deletionAnimation)
             case let .sectionInsert(section, _): tableView.insertSections(IndexSet(integer: section), with: self.insertionAnimation)
+            case let .update(section, row, _): tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: self.reloadAnimation)
             }
         }
         tableView.endUpdates()
@@ -74,6 +77,7 @@ public final class CollectionViewDiffCalculator<Section: Equatable, Value: Equat
                 case let .insert(section, row, _): collectionView.insertItems(at: [IndexPath(row: row, section: section)])
                 case let .sectionDelete(section, _): collectionView.deleteSections(IndexSet(integer: section))
                 case let .sectionInsert(section, _): collectionView.insertSections(IndexSet(integer: section))
+                case let .update(section, row, _): collectionView.reloadItems(at: [IndexPath(row: row, section: section)])
                 }
             }
         }, completion: nil)
